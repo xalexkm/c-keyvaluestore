@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <pthread.h>
 	
 #define TABLE_SIZE 100
 #define PORT 8111
@@ -100,7 +101,10 @@ void delete(char* key) {
 	save_to_file();
 }
 
-void handle_client(int client_socket) {
+void* handle_client(void* arg) {
+	int client_socket = *((int*)arg);
+	free(arg);
+
 	char buffer[BUFFER_SIZE];
     memset(buffer, 0, BUFFER_SIZE);
     read(client_socket, buffer, BUFFER_SIZE);
@@ -125,6 +129,7 @@ void handle_client(int client_socket) {
 
     write(client_socket, response, strlen(response));
     close(client_socket);	
+	return NULL;
 }
 
 void start_server() {
@@ -138,6 +143,9 @@ void start_server() {
 		exit(1);
 	}
 	
+	int opt = 1;
+	setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_addr.s_addr = INADDR_ANY;
 	server_addr.sin_port = htons(PORT);
@@ -155,12 +163,17 @@ void start_server() {
 	printf("Server started on port %d...\n", PORT);
 
 	while (1) {
-		client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &addr_size);
-		if (client_socket < 0) {
+		int* client_socket = malloc(sizeof(int));
+		*client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &addr_size);
+		if (*client_socket < 0) {
 			perror("Client connection failed");
+			free(client_socket);
 			continue;
 		}
-		handle_client(client_socket);
+
+		pthread_t thread_id;
+		pthread_create(&thread_id, NULL, handle_client, (void*)client_socket);
+		pthread_detach(thread_id);
 	}
 	
 	close(server_socket);
